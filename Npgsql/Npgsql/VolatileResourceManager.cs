@@ -76,6 +76,13 @@ namespace Npgsql
                 _localTx.Commit();
                 singlePhaseEnlistment.Committed();
             }
+            catch (NpgsqlException e)
+            {
+                if (e.Code != null && e.Code != "")
+                    singlePhaseEnlistment.Aborted(e);
+                else
+                    singlePhaseEnlistment.InDoubt(e);
+            }
             catch (Exception e)
             {
                 singlePhaseEnlistment.InDoubt(e);
