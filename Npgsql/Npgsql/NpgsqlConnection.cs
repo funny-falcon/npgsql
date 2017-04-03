@@ -649,7 +649,18 @@ namespace Npgsql
                 }
                 if (Enlist && Transaction.Current != null)
                 {
-                    EnlistTransaction(Transaction.Current);
+                    try
+                    {
+                        EnlistTransaction(Transaction.Current);
+                    }
+                    catch
+                    {
+                        var conn = connector;
+                        connector = null;
+                        conn.Connection = null;
+                        conn.Release();
+                        throw;
+                    }
                 }
             }
 

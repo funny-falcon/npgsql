@@ -1098,15 +1098,25 @@ namespace Npgsql
                 throw new InvalidOperationException("NpgsqlConnection: connection already enlisted");
             EnlistedTransaction = transaction;
             _possibleConcurrencyCount++;
-            transaction.EnlistVolatile(new VolatileResourceManager(this, transaction), EnlistmentOptions.None);
+            NpgsqlConnectorPool.ConnectorPoolMgr.PutEnlistedConnector(this);
+            try
+            {
+                transaction.EnlistVolatile(new VolatileResourceManager(this, transaction), EnlistmentOptions.None);
+            }
+            catch
+            {
+                NpgsqlConnectorPool.ConnectorPoolMgr.RemoveEnlistedConnector(this);
+                this.EnlistedTransaction = null;
+                _possibleConcurrencyCount--;
+                throw;
+            }
         }
 
         internal void EnlistedTransactionEnded()
         {
+            NpgsqlConnectorPool.ConnectorPoolMgr.RemoveEnlistedConnector(this);
             lock (_socket)
             {
-                if (Connection == null)
-                    NpgsqlConnectorPool.ConnectorPoolMgr.RemoveEnlistedConnector(this);
                 EnlistedTransaction = null;
                 _possibleConcurrencyCount--;
                 if (Connection == null)
@@ -1118,7 +1128,8 @@ namespace Npgsql
         {
             if (EnlistedTransaction != null)
             {
-                NpgsqlConnectorPool.ConnectorPoolMgr.PutEnlistedConnector(this);
+                if (_possibleConcurrencyCount != 1)
+                    throw new Exception("_possibleConcurrencyCount should be 1 in Release for Enlisted Transaction");
             }
             else if (_pooled)
             {

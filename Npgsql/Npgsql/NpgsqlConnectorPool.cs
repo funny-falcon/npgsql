@@ -467,7 +467,7 @@ namespace Npgsql
         /// <summary>
         /// Connections enlisted in distributed transaction
         /// </summary>
-        private static Dictionary<Transaction, List<NpgsqlConnector>> Enlisted = new Dictionary<Transaction, List<NpgsqlConnector>>();
+        private Dictionary<Transaction, List<NpgsqlConnector>> Enlisted = new Dictionary<Transaction, List<NpgsqlConnector>>();
 
         internal NpgsqlConnector TryGetEnlisted(NpgsqlConnection Connection, Transaction transaction)
         {
@@ -481,25 +481,21 @@ namespace Npgsql
             {
                 lock (q)
                 {
-                    int ix = q.FindIndex((c) => c.ConnectionString == Connection.ConnectionString);
-                    if (ix != -1)
+                    foreach (var c in q)
                     {
-                        Connector = q[ix];
-                        q.RemoveAt(ix);
-                        if (q.Count == 0)
-                            lock (Enlisted)
-                                Enlisted.Remove(transaction);
+                        if (c.ConnectionString == Connection.ConnectionString)
+                        {
+                            lock (c)
+                            {
+                                if (c.Connection == null)
+                                {
+                                    c.Connection = Connection;
+                                    Connector = c;
+                                    break;
+                                }
+                            }
+                        }
                     }
-                }
-            }
-            if (Connector != null)
-            {
-                lock (Connector.Socket)
-                {
-                    if (Connector.EnlistedTransaction != transaction)
-                        throw new TransactionAbortedException("Transaction already aborted or ended");
-                    else
-                        Connector.Connection = Connection;
                 }
             }
             return Connector;
@@ -523,21 +519,13 @@ namespace Npgsql
 
             // Now we can simply lock on the pool itself.
             lock (Enlisted)
-                Enlisted.TryGetValue(Connector.EnlistedTransaction, out q);
-            if (q != null)
+                q = Enlisted[Connector.EnlistedTransaction];
+            lock (q)
             {
-                lock (q)
-                {
-                    int ix = q.FindIndex((c) => c == Connector);
-                    if (ix != -1)
-                    {
-                        Connector = q[ix];
-                        q.RemoveAt(ix);
-                        if (q.Count == 0)
-                            lock (Enlisted)
-                                Enlisted.Remove(Connector.EnlistedTransaction);
-                    }
-                }
+                q.Remove(Connector);
+                if (q.Count == 0)
+                    lock (Enlisted)
+                        Enlisted.Remove(Connector.EnlistedTransaction);
             }
         }
 
